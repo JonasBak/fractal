@@ -27,6 +27,7 @@ const fragmentShaderSource = `
 
     uniform float epsMarchThr;
     uniform float epsNormalEst;
+    uniform float mandelPower;
 
     const vec3 light_pos = vec3(10.0, 10.0, 10.0);
 
@@ -51,7 +52,6 @@ const fragmentShaderSource = `
       vec3 z = pos;
       float dr = 1.0;
       float r = 0.0;
-      float Power = 8.0 + 5.0 * sin(float(time) / 5000.0); //8.0;
       for (int i = 0; i < 500 ; i++) {
         r = length(z);
         if (r>10.0) break;
@@ -59,12 +59,12 @@ const fragmentShaderSource = `
         // convert to polar coordinates
         float theta = acos(z.z/r);
         float phi = atan(z.y,z.x);
-        dr =  pow( r, Power-1.0)*Power*dr + 1.0;
+        dr =  pow( r, mandelPower-1.0)*mandelPower*dr + 1.0;
         
         // scale and rotate the point
-        float zr = pow( r,Power);
-        theta = theta*Power;
-        phi = phi*Power;
+        float zr = pow( r,mandelPower);
+        theta = theta*mandelPower;
+        phi = phi*mandelPower;
         
         // convert back to cartesian coordinates
         z = zr*vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta));
@@ -74,7 +74,7 @@ const fragmentShaderSource = `
     }
 
     float dist_estimate(vec3 point) {
-      return mandelblub_distance(vec3(point.z * 0.5 + point.x * 0.5, point.y, point.x * 0.5 - point.z * 0.5));
+      return mandelblub_distance(point);
     }
 
     vec3 estimateNormal(vec3 p) {
@@ -88,7 +88,7 @@ const fragmentShaderSource = `
     vec3 march(vec3 point, vec3 direction) {
       float dist = 0.0;
       float min_dist = 200.0;
-      const int maxSteps = 200;
+      const int maxSteps = 100;
       for (int i = 0; i < maxSteps; i++) {
         vec3 p = (view * vec4(point + dist * direction, 1.0)).xyz;
         float estimate = dist_estimate(p);
@@ -120,7 +120,7 @@ const fragmentShaderSource = `
     void main() {
       float scale = min(screenSize.x, screenSize.y);
 
-      vec3 direction = normalize(vec3(gl_FragCoord.xy - 0.5 * screenSize, -scale));
+      vec3 direction = normalize(vec3(gl_FragCoord.xy - 0.5 * screenSize, scale));
 
       vec3 t = march(vec3(0.0), direction);
 
@@ -174,7 +174,23 @@ const getShaderProgram = (gl, vertexShaderSource, fragmentShaderSource) => {
       screenSize: gl.getUniformLocation(shaderProgram, 'screenSize'),
       epsMarchThr: gl.getUniformLocation(shaderProgram, 'epsMarchThr'),
       epsNormalEst: gl.getUniformLocation(shaderProgram, 'epsNormalEst'),
+      mandelPower: gl.getUniformLocation(shaderProgram, 'mandelPower'),
     },
+  };
+}
+
+const getRender = () => {
+  let view = mat4.identity(mat4.create());
+  mat4.rotateY(view, view, -0.7);
+  mat4.rotateX(view, view, 0.3);
+  mat4.translate(view, view, vec3.fromValues(-1.0, 0.0, -4.0));
+  return {
+    view,
+    epsMarchThr: 0.005,
+    epsNormalEst: 0.0004,
+    mandelPower: 6.0,
+    update: (t, render) => ({...render, mandelPower: 6.0 + 4 * Math.sin(t / 5000)}),
+    animate: true,
   };
 }
 
@@ -220,7 +236,7 @@ const bufferPositions = (gl, buffers, programInfo) => {
   }
 }
 
-function drawScene(gl, programInfo, buffers) {
+function drawScene(gl, programInfo, render) {
   gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.clearDepth(1.0);
   gl.enable(gl.DEPTH_TEST);
@@ -240,25 +256,23 @@ function drawScene(gl, programInfo, buffers) {
     canvas.width,
     canvas.height
   );
+  gl.uniformMatrix4fv(
+    programInfo.uniformLocations.view,
+    false,
+    render.view
+  );
   gl.uniform1f(
     programInfo.uniformLocations.epsMarchThr,
-    0.000005
+    render.epsMarchThr
   );
   gl.uniform1f(
     programInfo.uniformLocations.epsNormalEst,
-    0.0004
+    render.epsNormalEst
   );
-  {
-    let view = mat4.identity(mat4.create());
-    mat4.rotateX(view, view, 0.0);
-    mat4.translate(view, view, vec3.fromValues(0.0, 0.0, 3.0));
-		
-		gl.uniformMatrix4fv(
-      programInfo.uniformLocations.view,
-      false,
-      view
-    );
-  }
+  gl.uniform1f(
+    programInfo.uniformLocations.mandelPower,
+    render.mandelPower
+  );
 
   {
     const offset = 0;
@@ -266,13 +280,17 @@ function drawScene(gl, programInfo, buffers) {
     gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
   }
 
-  //requestAnimationFrame(() => drawScene(gl, programInfo, buffers));
+  if (render.animate) 
+    requestAnimationFrame(
+      () => drawScene(gl, programInfo, render.update(new Date().getTime() - startTime, render))
+    );
 }
 
 const programInfo = getShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
 const buffers = initBuffers(gl);
 const startTime = new Date().getTime();
+const render = getRender();
 
 bufferPositions(gl, buffers, programInfo);
 
-drawScene(gl, programInfo, buffers);
+drawScene(gl, programInfo, render);
