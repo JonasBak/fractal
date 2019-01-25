@@ -29,6 +29,11 @@ const fragmentShaderSource = `
     uniform float epsNormalEst;
     uniform float mandelPower;
 
+    uniform float escapeDistMandel;
+    uniform float escapeDistMarch;
+
+    const int maxStepsMandel = 20;
+    const int maxStepsMarch = 100;
     const vec3 light_pos = vec3(10.0, 10.0, 10.0);
 
     #define product(a, b) vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x)
@@ -52,9 +57,9 @@ const fragmentShaderSource = `
       vec3 z = pos;
       float dr = 1.0;
       float r = 0.0;
-      for (int i = 0; i < 500 ; i++) {
+      for (int i = 0; i < maxStepsMandel; i++) {
         r = length(z);
-        if (r>10.0) break;
+        if (r>escapeDistMandel) break;
         
         // convert to polar coordinates
         float theta = acos(z.z/r);
@@ -78,18 +83,17 @@ const fragmentShaderSource = `
     }
 
     vec3 estimateNormal(vec3 p) {
-        return normalize(vec3(
-            dist_estimate(vec3(p.x + epsNormalEst, p.y, p.z)) - dist_estimate(vec3(p.x - epsNormalEst, p.y, p.z)),
-            dist_estimate(vec3(p.x, p.y + epsNormalEst, p.z)) - dist_estimate(vec3(p.x, p.y - epsNormalEst, p.z)),
-            dist_estimate(vec3(p.x, p.y, p.z  + epsNormalEst)) - dist_estimate(vec3(p.x, p.y, p.z - epsNormalEst))
-        ));
+      return normalize(vec3(
+        dist_estimate(vec3(p.x + epsNormalEst, p.y, p.z)) - dist_estimate(vec3(p.x - epsNormalEst, p.y, p.z)),
+        dist_estimate(vec3(p.x, p.y + epsNormalEst, p.z)) - dist_estimate(vec3(p.x, p.y - epsNormalEst, p.z)),
+        dist_estimate(vec3(p.x, p.y, p.z  + epsNormalEst)) - dist_estimate(vec3(p.x, p.y, p.z - epsNormalEst))
+      ));
     }
 
     vec3 march(vec3 point, vec3 direction) {
       float dist = 0.0;
       float min_dist = 200.0;
-      const int maxSteps = 100;
-      for (int i = 0; i < maxSteps; i++) {
+      for (int i = 0; i < maxStepsMarch; i++) {
         vec3 p = (view * vec4(point + dist * direction, 1.0)).xyz;
         float estimate = dist_estimate(p);
 
@@ -103,13 +107,13 @@ const fragmentShaderSource = `
           float occlution = pow(float(i) / 80.0, 1.5);
           float steps = 10.0 / float(i);
 
-          float t = 1.0 - float(i) / float(maxSteps);
+          float t = 1.0 - float(i) / float(maxStepsMarch);
           return vec3(t);
         }
 
         dist += estimate;
 
-        if (dist > 20.0) {
+        if (dist > escapeDistMarch) {
           return vec3(0.0, 0.0, 1.0 / pow(min_dist * 100.0 + 2.0, 0.5));
         }
       }
@@ -175,6 +179,8 @@ const getShaderProgram = (gl, vertexShaderSource, fragmentShaderSource) => {
       epsMarchThr: gl.getUniformLocation(shaderProgram, 'epsMarchThr'),
       epsNormalEst: gl.getUniformLocation(shaderProgram, 'epsNormalEst'),
       mandelPower: gl.getUniformLocation(shaderProgram, 'mandelPower'),
+      escapeDistMandel: gl.getUniformLocation(shaderProgram, 'escapeDistMandel'),
+      escapeDistMarch: gl.getUniformLocation(shaderProgram, 'escapeDistMarch'),
     },
   };
 }
@@ -183,12 +189,14 @@ const getRender = () => {
   let view = mat4.identity(mat4.create());
   mat4.rotateY(view, view, -0.7);
   mat4.rotateX(view, view, 0.3);
-  mat4.translate(view, view, vec3.fromValues(-1.0, 0.0, -4.0));
+  mat4.translate(view, view, vec3.fromValues(-0.2, 0.0, -3.5));
   return {
     view,
-    epsMarchThr: 0.005,
+    epsMarchThr: 0.002,
     epsNormalEst: 0.0004,
     mandelPower: 6.0,
+    escapeDistMandel: 2.5,
+    escapeDistMarch: 20.0,
     update: (t, render) => ({...render, mandelPower: 6.0 + 4 * Math.sin(t / 5000)}),
     animate: true,
   };
@@ -272,6 +280,14 @@ function drawScene(gl, programInfo, render) {
   gl.uniform1f(
     programInfo.uniformLocations.mandelPower,
     render.mandelPower
+  );
+  gl.uniform1f(
+    programInfo.uniformLocations.escapeDistMandel,
+    render.escapeDistMandel
+  );
+  gl.uniform1f(
+    programInfo.uniformLocations.escapeDistMarch,
+    render.escapeDistMarch
   );
 
   {
