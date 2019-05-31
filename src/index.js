@@ -124,7 +124,7 @@ const fragmentShaderSource = `
     void main() {
       float scale = min(screenSize.x, screenSize.y);
 
-      vec3 direction = normalize(vec3(gl_FragCoord.xy - 0.5 * screenSize, scale));
+      vec3 direction = normalize(vec3(gl_FragCoord.xy / screenSize - 0.5, 1.0));
 
       vec3 t = march(vec3(0.0), direction);
 
